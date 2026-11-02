@@ -31,6 +31,7 @@ Toggle theme with `t`, cycle profiles with `p`. Or pin a theme/profile via URL: 
 - Search + filter chips, keyboard shortcuts (`/`, `n`, `r`, `\`, `Esc`).
 - **Tags**: free-form labels per card (`bug`, `gles`, `perf`); a tag bar under the topbar filters the board with one click, cards show their `#tags`, and the card editor has a searchable multi-select of the project's existing tags. `GET /api/tags` returns the vocabulary with counts.
 - **Project sidebar**: search by name/path, per-project approved/blocked counters (the plain total only when nothing is actionable), drag-to-reorder (`sort_order`), and a `⋯` menu with rename / archive / connect / copy path. Collapsed, the counters become a dot on the project mark.
+- **Card modal**: two columns (content + properties), status change and copy-link in the header, acceptance criteria shown as an interactive checklist when they are `- [ ]` lines, history and comments in one activity stream, `Ctrl/⌘+S` to save.
 - Inbox watcher: drop a `.md` into `kanban_data/inbox/`, get a card in 5 sec. Point `KANBAN_INBOX_DIR` at any folder you like — even `~/.claude/projects/<proj>/memory/inbox/` for Claude session captures.
 - PLAN.md import (loose-mode parser, one-shot): any `## Section` → cards in backlog with section-name in description.
 - Automation rules (`kanban_data/rules.json`): `task_moved`, `task_idle`, `blockers_done`, `task_count_in_status` → move, comment, assign, set priority, archive, run a command. Polling rules act once per stay in a column; WIP limits, a pause switch. Hot-reloaded.

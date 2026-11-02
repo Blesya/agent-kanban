@@ -58,6 +58,7 @@ const state = {
   projDragging: false,             // reorder in progress
   projDragEndedAt: 0,              // swallow the click that follows a drag
   automationPaused: false,
+  acceptanceItems: null,           // parsed checklist of the open card, or null
   modalTask: null,                 // task currently open in the modal
 };
 
@@ -821,6 +822,24 @@ async function handleDrop(evt) {
 
 const HISTORY_LIMIT = 200;
 
+// Dot colour per column in the modal header.
+const STATUS_COLORS = {
+  backlog: "#94A3B8",
+  approved: "#F10D30",
+  analyst: "#A855F7",
+  in_progress: "#2563EB",
+  testing: "#0EA5E9",
+  uat: "#8B5CF6",
+  done: "#1FA171",
+  blocked: "#C68E17",
+  cancelled: "#64748B",
+};
+
+function setStatusDot(status) {
+  const dot = $("#m-status-dot");
+  if (dot) dot.style.background = STATUS_COLORS[status] || "var(--muted)";
+}
+
 async function openTaskModal(taskId) {
   let t;
   try {
@@ -831,15 +850,22 @@ async function openTaskModal(taskId) {
   }
   state.modalTask = t;
   $("#modal").dataset.taskId = t.id;
+  $("#m-project").textContent = t.project_id;
   $("#m-id").textContent = t.id;
   $("#m-id").title = "Copy link to this card";
-  $("#m-status").textContent = (STATUS_TITLE[t.status] || t.status) + (t.archived_at ? " · archived" : "");
+  $("#m-status").value = t.status;
+  setStatusDot(t.status);
+  const created = (t.history || []).find(h => h.action === "create");
+  $("#m-created").textContent = created
+    ? `created by ${created.actor} · ${localTime(created.ts)}`
+    : "";
+  if (t.archived_at) $("#m-created").textContent += " · archived";
   $("#m-title").value = t.title || "";
   $("#m-priority").value = t.priority || "normal";
   $("#m-size").value = t.size || "M";
   $("#m-assignee").value = t.assignee || "";
   $("#m-description").value = t.description || "";
-  $("#m-acceptance").value = t.acceptance || "";
+  renderAcceptance(t.acceptance || "");
   $("#m-blocker").value = t.external_blocker || "";
   tagPickerEdit.set(t.tags || []);
   $("#btn-archive-task").textContent = t.archived_at ? "Unarchive" : "Archive";
@@ -848,6 +874,82 @@ async function openTaskModal(taskId) {
   $("#m-comment").value = "";
   $("#modal").hidden = false;
   history.replaceState(history.state, "", `/p/${t.project_id}/t/${encodeURIComponent(t.id)}`);
+}
+
+// --- acceptance criteria: a checklist when the text is "- [ ] item" lines ---
+
+function parseChecklist(text) {
+  const lines = String(text || "").split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  if (!lines.length) return null;
+  if (!lines.every(l => /^[-*]\s*\[[ xX]\]\s+\S/.test(l))) return null;
+  return lines.map(l => {
+    const m = l.match(/^[-*]\s*\[([ xX])\]\s+(.*)$/);
+    return { done: m[1].toLowerCase() === "x", text: m[2] };
+  });
+}
+
+function renderAcceptance(text) {
+  const items = parseChecklist(text);
+  const list = $("#m-acceptance-list");
+  const area = $("#m-acceptance");
+  const add = $("#m-acceptance-add");
+  state.acceptanceItems = items;
+  if (!items) {
+    list.hidden = true;
+    list.innerHTML = "";
+    area.hidden = false;
+    area.value = text || "";
+    add.hidden = true;
+    $("#m-acceptance-meta").textContent = "";
+    return;
+  }
+  area.hidden = true;
+  list.hidden = false;
+  add.hidden = false;
+  renderAcceptanceList();
+}
+
+function renderAcceptanceList() {
+  const items = state.acceptanceItems || [];
+  const list = $("#m-acceptance-list");
+  list.innerHTML = items.map((it, i) => `<label class="check-item${it.done ? " is-done" : ""}">
+      <input type="checkbox" data-i="${i}"${it.done ? " checked" : ""} />
+      <span>${escapeHTML(it.text)}</span>
+    </label>`).join("");
+  list.querySelectorAll("input[type=checkbox]").forEach(cb => {
+    cb.addEventListener("change", () => {
+      const i = Number(cb.dataset.i);
+      state.acceptanceItems[i].done = cb.checked;
+      cb.closest(".check-item").classList.toggle("is-done", cb.checked);
+      updateAcceptanceMeta();
+    });
+  });
+  updateAcceptanceMeta();
+}
+
+function updateAcceptanceMeta() {
+  const items = state.acceptanceItems || [];
+  const done = items.filter(i => i.done).length;
+  $("#m-acceptance-meta").textContent = items.length ? `${done} of ${items.length} done` : "";
+}
+
+function acceptanceValue() {
+  const items = state.acceptanceItems;
+  if (!items) return $("#m-acceptance").value;
+  return items.map(it => `- [${it.done ? "x" : " "}] ${it.text}`).join("\n");
+}
+
+function addAcceptanceItem() {
+  const input = $("#m-acceptance-new");
+  const text = input.value.trim();
+  if (!text) return;
+  if (!state.acceptanceItems) state.acceptanceItems = [];
+  state.acceptanceItems.push({ done: false, text });
+  input.value = "";
+  $("#m-acceptance-list").hidden = false;
+  $("#m-acceptance").hidden = true;
+  $("#m-acceptance-add").hidden = false;
+  renderAcceptanceList();
 }
 
 async function copyTaskLink() {
@@ -900,23 +1002,41 @@ function renderHistory(history, total) {
     el.appendChild(more);
   }
   for (const h of (history || [])) {
+    if (h.action === "comment") {
+      const row = document.createElement("div");
+      row.className = "h-comment";
+      const agent = h.actor === "claude" || h.actor.startsWith("agent:");
+      row.innerHTML = `
+        <span class="h-avatar${h.actor === "user" ? " h-avatar--user" : ""}">${escapeHTML(actorInitials(h.actor))}</span>
+        <div class="h-bubble">
+          <div class="h-bubble__head">
+            <span class="h-actor">${escapeHTML(h.actor)}</span>
+            ${agent ? '<span class="h-badge">AI</span>' : ""}
+            <span class="h-ts">${localTime(h.ts)}</span>
+          </div>
+          <div class="h-text">${escapeHTML(h.comment || "")}</div>
+        </div>`;
+      el.appendChild(row);
+      continue;
+    }
     const row = document.createElement("div");
     row.className = "h-row";
-    const ts = localTime(h.ts);
     const text = h.action === "move"
       ? `${h.from_status || "—"} → ${h.to_status || "—"}` + (h.comment ? ` — ${h.comment}` : "")
       : (h.comment || "");
     row.innerHTML = `
-      <span class="h-ts">${ts}</span>
       <span class="h-actor">${escapeHTML(h.actor)}</span>
-      <span class="h-act">${h.action}</span>
-      <span class="h-text">${escapeHTML(text)}</span>
+      <span class="h-act">${escapeHTML(h.action)}</span>
+      ${text ? `<span class="h-text">${escapeHTML(text)}</span>` : ""}
+      <span class="h-ts">${localTime(h.ts)}</span>
     `;
     el.appendChild(row);
   }
   if (!history || !history.length) {
     el.innerHTML = `<span class="h-text" style="color: var(--muted)">empty</span>`;
   }
+  const totalEl = $("#m-history-total");
+  if (totalEl) totalEl.textContent = total ? `${total} events` : "";
 }
 
 function closeModal() {
@@ -924,6 +1044,7 @@ function closeModal() {
   $("#modal").hidden = true;
   delete $("#modal").dataset.taskId;
   state.modalTask = null;
+  state.acceptanceItems = null;
   if (wasOpen && state.projectId && parseTaskRoute()) {
     history.replaceState(history.state, "", `/p/${state.projectId}`);
   }
@@ -935,7 +1056,7 @@ async function saveModal() {
   const payload = {
     title: $("#m-title").value.trim(),
     description: $("#m-description").value,
-    acceptance: $("#m-acceptance").value,
+    acceptance: acceptanceValue(),
     priority: $("#m-priority").value,
     size: $("#m-size").value,
     // "" clears the blocker (null would mean "leave unchanged")
@@ -943,7 +1064,20 @@ async function saveModal() {
     tags: tagPickerEdit.get(),
   };
   const assignee = $("#m-assignee").value.trim();
+  const status = $("#m-status").value;
+  const prevStatus = state.modalTask ? state.modalTask.status : null;
   try {
+    if (status && prevStatus && status !== prevStatus) {
+      try {
+        await api("POST", `/api/tasks/${taskId}/move`, {
+          to_status: status,
+          expected_from: prevStatus,
+        });
+      } catch (e) {
+        toast(`Status not changed: ${e.message}`, "err");
+        return;
+      }
+    }
     await api("PATCH", `/api/tasks/${taskId}`, payload);
     if (state.modalTask && (state.modalTask.assignee || "") !== assignee) {
       await api("POST", `/api/tasks/${taskId}/assign`, { assignee: assignee || null });
@@ -1820,6 +1954,26 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#btn-resume-automation").addEventListener("click", toggleAutomation);
   $("#btn-archive-task").addEventListener("click", toggleArchiveTask);
   $("#m-id").addEventListener("click", copyTaskLink);
+  $("#btn-copy-link").addEventListener("click", copyTaskLink);
+  $("#m-status").addEventListener("change", (e) => setStatusDot(e.target.value));
+  $("#btn-add-acceptance").addEventListener("click", addAcceptanceItem);
+  $("#m-acceptance-new").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addAcceptanceItem();
+    }
+  });
+  // Ctrl/Cmd+S saves the open card (browser "Save page" is useless here).
+  document.addEventListener("keydown", (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "s") return;
+    if (!$("#modal").hidden) {
+      e.preventDefault();
+      saveModal();
+    } else if (!$("#new-modal").hidden) {
+      e.preventDefault();
+      createTask();
+    }
+  });
   refreshAutomation();
   setInterval(refreshAutomation, 30000);
   $("#btn-sidebar").addEventListener("click", toggleSidebar);

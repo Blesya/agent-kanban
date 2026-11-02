@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Cinzel:wght@500;600;700&family=Marcellus&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/styles.css?v=0.2.11" />
+  <link rel="stylesheet" href="/static/styles.css?v=0.2.15" />
   <script>
     // Apply saved theme and profile before body parses — no flash of wrong styles.
     // Also accept ?theme=light|dark and ?profile=standard|cyberpunk|horizon
@@ -139,95 +139,139 @@
   <!-- ========== Task detail modal ========== -->
   <div class="modal" id="modal" hidden>
     <div class="modal__backdrop" data-close></div>
-    <div class="modal__panel">
-      <header class="modal__head">
-        <span class="task-id" id="m-id">T-???</span>
-        <span class="chip chip--status" id="m-status">…</span>
-        <button class="btn btn--icon" data-close aria-label="Close">×</button>
-      </header>
-      <div class="modal__body">
-        <div class="field">
-          <label>Title</label>
-          <input type="text" id="m-title" />
+    <div class="modal__panel modal__panel--issue">
+      <header class="modal__head issue-head">
+        <div class="issue-crumb">
+          <span class="issue-crumb__proj" id="m-project">project</span>
+          <span class="issue-crumb__sep">/</span>
+          <button class="issue-crumb__id" id="m-id" title="Copy link to this card">T-???</button>
+          <label class="issue-status" title="Status">
+            <span class="issue-status__dot" id="m-status-dot"></span>
+            <select id="m-status" aria-label="Status">
+              <option value="backlog">Backlog</option>
+              <option value="approved">Approved</option>
+              <option value="analyst">Analyst</option>
+              <option value="in_progress">In progress</option>
+              <option value="testing">Testing</option>
+              <option value="uat">UAT</option>
+              <option value="done">Done</option>
+              <option value="blocked">Blocked</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </label>
+          <span class="issue-created" id="m-created"></span>
         </div>
-        <div class="field-row">
-          <div class="field">
-            <label>Priority</label>
-            <select id="m-priority">
+        <div class="issue-actions">
+          <button class="btn btn--icon" id="btn-copy-link" title="Copy link to this card" aria-label="Copy link">⧉</button>
+          <button class="btn btn--icon" data-close aria-label="Close">×</button>
+        </div>
+      </header>
+
+      <div class="issue-body">
+        <section class="issue-main">
+          <textarea id="m-title" class="issue-title" rows="1" placeholder="Task title…"></textarea>
+
+          <div class="issue-block">
+            <div class="issue-block__head"><span>Description</span></div>
+            <textarea id="m-description" class="issue-text" rows="7" placeholder="What should be done…"></textarea>
+          </div>
+
+          <div class="issue-block">
+            <div class="issue-block__head">
+              <span>Acceptance criteria</span>
+              <span class="issue-block__meta" id="m-acceptance-meta"></span>
+            </div>
+            <div class="issue-checklist" id="m-acceptance-list" hidden></div>
+            <textarea id="m-acceptance" class="issue-text" rows="4" placeholder="One criterion per line"></textarea>
+            <div class="issue-checklist__add" id="m-acceptance-add" hidden>
+              <input type="text" id="m-acceptance-new" placeholder="Add a criterion…" />
+              <button class="btn btn--ghost" id="btn-add-acceptance" type="button">+</button>
+            </div>
+          </div>
+
+          <div class="issue-block issue-activity">
+            <div class="issue-block__head">
+              <span>Activity</span>
+              <span class="issue-block__meta" id="m-history-total"></span>
+            </div>
+            <div class="history" id="m-history"></div>
+            <div class="comment-add">
+              <input type="text" id="m-comment" placeholder="Write a comment…" />
+              <button class="btn btn--ghost" id="btn-add-comment">Send</button>
+            </div>
+          </div>
+        </section>
+
+        <aside class="issue-side">
+          <div class="side-title">Properties</div>
+
+          <label class="prop">
+            <span class="prop__label">Assignee</span>
+            <input type="text" id="m-assignee" class="prop__input" placeholder="unassigned" />
+          </label>
+
+          <label class="prop">
+            <span class="prop__label">Priority</span>
+            <select id="m-priority" class="prop__input">
               <option value="critical">Critical</option>
               <option value="high">High</option>
               <option value="normal">Normal</option>
               <option value="low">Low</option>
             </select>
-          </div>
-          <div class="field">
-            <label>Size</label>
-            <select id="m-size">
+          </label>
+
+          <label class="prop">
+            <span class="prop__label">Size</span>
+            <select id="m-size" class="prop__input">
               <option value="S">S — &lt;30 min</option>
               <option value="M">M — &lt;2 h</option>
               <option value="L">L — &gt;2 h</option>
               <option value="XL">XL</option>
             </select>
-          </div>
-          <div class="field">
-            <label>Assignee</label>
-            <input type="text" id="m-assignee" placeholder="— (e.g. claude, agent:reviewer)" />
-          </div>
-        </div>
-        <div class="field">
-          <label>Tags</label>
-          <div class="tagpicker">
-            <div class="tagpicker__values" id="m-tags"><span class="tagpicker__hint">none</span></div>
-            <button type="button" class="tagpicker__add" id="m-tag-add">+ tag</button>
-            <div class="tagpicker__menu" id="m-tag-menu" hidden>
-              <input type="text" id="m-tag-search" class="tagpicker__search"
-                     placeholder="Search tags…" autocomplete="off" />
-              <div class="tagpicker__list" id="m-tag-list"></div>
+          </label>
+
+          <div class="prop">
+            <span class="prop__label">Tags</span>
+            <div class="tagpicker">
+              <div class="tagpicker__values" id="m-tags"><span class="tagpicker__hint">none</span></div>
+              <button type="button" class="tagpicker__add" id="m-tag-add">+ tag</button>
+              <div class="tagpicker__menu" id="m-tag-menu" hidden>
+                <input type="text" id="m-tag-search" class="tagpicker__search"
+                       placeholder="Search tags…" autocomplete="off" />
+                <div class="tagpicker__list" id="m-tag-list"></div>
+              </div>
             </div>
           </div>
-        </div>
-        <div class="field">
-          <label>Description</label>
-          <textarea id="m-description" rows="6"></textarea>
-        </div>
-        <div class="field">
-          <label>Acceptance criteria</label>
-          <textarea id="m-acceptance" rows="4"></textarea>
-        </div>
-        <div class="field">
-          <label>External blocker</label>
-          <input type="text" id="m-blocker" placeholder="e.g. DevOps: monitoring.viewer (empty = none)" />
-        </div>
-        <div class="field">
-          <label>Links</label>
-          <div class="links" id="m-links"></div>
-          <div class="link-add">
-            <select id="m-link-type">
-              <option value="memory">memory</option>
-              <option value="file">file</option>
-              <option value="pr">pr</option>
-              <option value="url">url</option>
-              <option value="plan">plan</option>
-            </select>
-            <input type="text" id="m-link-value" placeholder="filename or url" />
-            <button class="btn btn--ghost" id="btn-add-link">+</button>
+
+          <div class="side-divider"></div>
+
+          <label class="prop">
+            <span class="prop__label">External blocker</span>
+            <input type="text" id="m-blocker" class="prop__input" placeholder="e.g. DevOps: monitoring.viewer" />
+          </label>
+
+          <div class="prop">
+            <span class="prop__label">Links</span>
+            <div class="links" id="m-links"></div>
+            <div class="link-add">
+              <select id="m-link-type">
+                <option value="memory">memory</option>
+                <option value="file">file</option>
+                <option value="pr">pr</option>
+                <option value="url">url</option>
+                <option value="plan">plan</option>
+              </select>
+              <input type="text" id="m-link-value" placeholder="filename or url" />
+              <button class="btn btn--ghost" id="btn-add-link">+</button>
+            </div>
           </div>
-        </div>
-        <div class="field">
-          <label>History</label>
-          <div class="history" id="m-history"></div>
-        </div>
-        <div class="field">
-          <label>Add comment</label>
-          <div class="comment-add">
-            <input type="text" id="m-comment" placeholder="Comment text" />
-            <button class="btn btn--ghost" id="btn-add-comment">+</button>
-          </div>
-        </div>
+        </aside>
       </div>
-      <footer class="modal__foot">
+
+      <footer class="modal__foot issue-foot">
         <button class="btn btn--ghost modal__foot-left" id="btn-archive-task" title="Hide from the board, keep the status">Archive</button>
-        <button class="btn btn--ghost" data-close>Cancel</button>
+        <span class="issue-foot__hint">Ctrl+S / ⌘S to save</span>
+        <button class="btn btn--ghost" data-close>Close</button>
         <button class="btn btn--primary" id="btn-save">Save</button>
       </footer>
     </div>
@@ -236,67 +280,82 @@
   <!-- ========== New task modal ========== -->
   <div class="modal" id="new-modal" hidden>
     <div class="modal__backdrop" data-close-new></div>
-    <div class="modal__panel">
-      <header class="modal__head">
-        <span class="task-id">New task</span>
-        <span class="chip chip--status" id="n-proj-chip">—</span>
-        <button class="btn btn--icon" data-close-new aria-label="Close">×</button>
-      </header>
-      <div class="modal__body">
-        <div class="field">
-          <label>Title</label>
-          <input type="text" id="n-title" />
+    <div class="modal__panel modal__panel--issue">
+      <header class="modal__head issue-head">
+        <div class="issue-crumb">
+          <span class="issue-crumb__proj" id="n-proj-chip">—</span>
+          <span class="issue-crumb__sep">/</span>
+          <span class="issue-crumb__new">new task</span>
         </div>
-        <div class="field-row">
-          <div class="field">
-            <label>Column</label>
-            <select id="n-status">
+        <div class="issue-actions">
+          <button class="btn btn--icon" data-close-new aria-label="Close">×</button>
+        </div>
+      </header>
+
+      <div class="issue-body">
+        <section class="issue-main">
+          <textarea id="n-title" class="issue-title" rows="1" placeholder="Task title…"></textarea>
+
+          <div class="issue-block">
+            <div class="issue-block__head"><span>Description</span></div>
+            <textarea id="n-description" class="issue-text" rows="7" placeholder="What should be done…"></textarea>
+          </div>
+
+          <div class="issue-block">
+            <div class="issue-block__head"><span>Acceptance criteria</span></div>
+            <textarea id="n-acceptance" class="issue-text" rows="4" placeholder="One criterion per line"></textarea>
+          </div>
+        </section>
+
+        <aside class="issue-side">
+          <div class="side-title">Properties</div>
+
+          <label class="prop">
+            <span class="prop__label">Column</span>
+            <select id="n-status" class="prop__input">
               <option value="backlog">Backlog</option>
               <option value="approved">Approved</option>
               <option value="blocked">Blocked</option>
             </select>
-          </div>
-          <div class="field">
-            <label>Priority</label>
-            <select id="n-priority">
+          </label>
+
+          <label class="prop">
+            <span class="prop__label">Priority</span>
+            <select id="n-priority" class="prop__input">
               <option value="normal">Normal</option>
               <option value="critical">Critical</option>
               <option value="high">High</option>
               <option value="low">Low</option>
             </select>
-          </div>
-          <div class="field">
-            <label>Size</label>
-            <select id="n-size">
-              <option value="M">M</option>
-              <option value="S">S</option>
-              <option value="L">L</option>
+          </label>
+
+          <label class="prop">
+            <span class="prop__label">Size</span>
+            <select id="n-size" class="prop__input">
+              <option value="M">M — &lt;2 h</option>
+              <option value="S">S — &lt;30 min</option>
+              <option value="L">L — &gt;2 h</option>
               <option value="XL">XL</option>
             </select>
-          </div>
-        </div>
-        <div class="field">
-          <label>Description</label>
-          <textarea id="n-description" rows="5"></textarea>
-        </div>
-        <div class="field">
-          <label>Acceptance criteria</label>
-          <textarea id="n-acceptance" rows="3"></textarea>
-        </div>
-        <div class="field">
-          <label>Tags</label>
-          <div class="tagpicker">
-            <div class="tagpicker__values" id="n-tags"><span class="tagpicker__hint">none</span></div>
-            <button type="button" class="tagpicker__add" id="n-tag-add">+ tag</button>
-            <div class="tagpicker__menu" id="n-tag-menu" hidden>
-              <input type="text" id="n-tag-search" class="tagpicker__search"
-                     placeholder="Search tags…" autocomplete="off" />
-              <div class="tagpicker__list" id="n-tag-list"></div>
+          </label>
+
+          <div class="prop">
+            <span class="prop__label">Tags</span>
+            <div class="tagpicker">
+              <div class="tagpicker__values" id="n-tags"><span class="tagpicker__hint">none</span></div>
+              <button type="button" class="tagpicker__add" id="n-tag-add">+ tag</button>
+              <div class="tagpicker__menu" id="n-tag-menu" hidden>
+                <input type="text" id="n-tag-search" class="tagpicker__search"
+                       placeholder="Search tags…" autocomplete="off" />
+                <div class="tagpicker__list" id="n-tag-list"></div>
+              </div>
             </div>
           </div>
-        </div>
+        </aside>
       </div>
-      <footer class="modal__foot">
+
+      <footer class="modal__foot issue-foot">
+        <span class="issue-foot__hint">Cards start in the column you pick</span>
         <button class="btn btn--ghost" data-close-new>Cancel</button>
         <button class="btn btn--primary" id="btn-create">Create</button>
       </footer>
@@ -416,6 +475,6 @@
   <div class="toast" id="toast" hidden></div>
 
   <script src="/static/vendor/Sortable.min.js"></script>
-  <script src="/static/app.js?v=0.2.11"></script>
+  <script src="/static/app.js?v=0.2.15"></script>
 </body>
 </html>
