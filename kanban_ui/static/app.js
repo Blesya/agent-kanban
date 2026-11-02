@@ -542,13 +542,50 @@ function render(board) {
   root.classList.toggle("is-compact", state.density === "compact");
   // stats
   renderStats(visible, total);
+  renderAgentsLive();
+}
+
+// Who is working right now: cards with a live run_command job (assigned actor).
+function renderAgentsLive() {
+  const el = $("#agents-live");
+  if (!el) return;
+  const byActor = new Map();
+  for (const col of state.board.columns || []) {
+    for (const t of state.board.tasks[col.id] || []) {
+      if (!(t.running || []).length) continue;
+      const who = t.assignee || "agent";
+      if (!byActor.has(who)) byActor.set(who, []);
+      byActor.get(who).push(t);
+    }
+  }
+  const actors = [...byActor.keys()];
+  if (!actors.length) {
+    el.hidden = true;
+    el.innerHTML = "";
+    return;
+  }
+  const shown = actors.slice(0, 3);
+  el.hidden = false;
+  el.innerHTML = shown.map(who => {
+    const tasks = byActor.get(who);
+    const what = tasks.map(t => `${t.id} (${(t.running || []).join(", ")})`).join("; ");
+    const tone = who === "user" ? " agent-ava--user" : "";
+    return `<button class="agent-ava${tone}" data-task="${escapeHTML(tasks[0].id)}"
+      title="${escapeHTML(`${who} — running: ${what}`)}">${escapeHTML(actorInitials(who))}</button>`;
+  }).join("") + (actors.length > shown.length
+    ? `<span class="agent-ava agent-ava--more" title="${actors.length - shown.length} more running">+${actors.length - shown.length}</span>`
+    : "");
+  el.querySelectorAll(".agent-ava[data-task]").forEach(b => {
+    b.addEventListener("click", () => openTaskModal(b.dataset.task));
+  });
 }
 
 function renderStats(visible, total) {
-  const filterLabel = (state.search || state.filters.size > 0)
-    ? `${visible} / ${total}` : `${total}`;
+  const filtering = Boolean(state.search || state.filters.size > 0);
   const el = $("#stats");
-  el.textContent = `${filterLabel} tasks`;
+  el.textContent = filtering
+    ? `${visible} / ${total} tasks`
+    : `${total} task${total === 1 ? "" : "s"}`;
   const archived = state.board.archived_count || 0;
   if (archived || state.showArchived) {
     const a = document.createElement("button");
@@ -1841,6 +1878,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#btn-search-clear").addEventListener("click", clearSearch);
 
   // Sidebar: project search, keyboard navigation, actions menu
+  $("#btn-crumbs-projects").addEventListener("click", () => {
+    if (state.sidebarCollapsed) toggleSidebar();
+    $("#proj-search").focus();
+  });
   $("#proj-search").addEventListener("input", onProjSearchInput);
   $("#btn-proj-search-clear").addEventListener("click", clearProjSearch);
   $("#proj-search").addEventListener("keydown", (e) => {
