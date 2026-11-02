@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Tags on cards.** `task_tags` (schema v6) stores free-form labels
+  normalised to lowercase; the board filters by a tag with one click, every
+  card shows its `#tags`, and the card editor picks from the project's
+  existing vocabulary with a search field on top of the dropdown.
+  `GET /api/tags` returns the vocabulary with counts; MCP gained `kanban_tags`
+  and a `tag` filter on `kanban_list` / `kanban_search` (17 tools).
+- **Project sidebar.** Search over name/id/path, per-project `approved` /
+  `blocked` counters instead of one meaningless total, drag-to-reorder
+  persisted as `sort_order`, and a `⋯` menu (rename / archive / connect /
+  copy path). Collapsed, the counters become a dot on the project mark.
+- **Two-row topbar.** Breadcrumb, live agents (cards with a running
+  `run_command` job), and a filter row with search, chips (incl. "Mine") and
+  the display switches grouped on the right.
+- **Card modal.** Two columns: description, an interactive acceptance
+  checklist (when the text is `- [ ]` lines) and one activity stream on the
+  left; properties, blocker and links on the right. Status changes from the
+  header, `Ctrl/⌘+S` saves. The new-task dialog uses the same layout.
+- **`run-kanban.ps1`** for Windows: start/stop/status and a Startup-folder
+  autostart, logs in `kanban_data/logs`.
+
+### Fixed
+
+- Inputs that used to inherit `.field` styles (comment, link, tag search)
+  rendered as bare browser controls in the new modal layout.
+- `[hidden]` did not hide flex containers (the acceptance checklist showed
+  as an empty box under the textarea).
+- Ghost buttons inside the white modal used the dark-panel text colour and
+  were nearly invisible.
+
 ## 0.2.0 — 2026-09-25
 
 This release comes from running the board daily with Claude Code agents for

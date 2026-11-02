@@ -7,7 +7,7 @@
 
 A self-hosted kanban board designed to be driven by AI coding agents
 (Claude Code, Cline, opencode, Open WebUI, any function-calling LLM).
-Drag-drop in browser, REST + MCP for agents. Multi-project, light/dark
+Drag-drop in browser, REST + MCP for agents. Multi-project, tags, light/dark
 theme, markdown plan-file import, automation rules.
 
 ![Board — light theme](docs/screenshots/board-light.png)
@@ -20,6 +20,15 @@ theme, markdown plan-file import, automation rules.
 | ![dark](docs/screenshots/board-dark.png) | ![cyberpunk](docs/screenshots/board-cyberpunk.png) | ![horizon](docs/screenshots/board-horizon.png) |
 
 Toggle theme with `t`, cycle profiles with `p`. Or pin a theme/profile via URL: `?theme=light&profile=cyberpunk`.
+
+</details>
+
+<details>
+<summary>Card modal</summary>
+
+![Card modal — description, acceptance checklist, activity and properties](docs/screenshots/task-modal.png)
+
+Status changes from the header, acceptance criteria as a checklist (when they are `- [ ]` lines), history and comments in one activity stream, `Ctrl/⌘+S` to save.
 
 </details>
 
