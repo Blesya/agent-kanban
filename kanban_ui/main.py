@@ -215,6 +215,10 @@ class TaskCreate(_Strict):
     size: str = "M"
     assignee: str | None = None
     external_blocker: str | None = None
+    tags: list[str] = Field(
+        default_factory=list,
+        description="labels; lowercased, spaces become '-' (e.g. 'Bug Fix' → 'bug-fix')",
+    )
     links: list[LinkIn] = Field(default_factory=list)
     project_id: str = DEFAULT_PROJECT_ID
 
@@ -227,6 +231,10 @@ class TaskUpdate(_Strict):
     size: str | None = None
     external_blocker: str | None = Field(
         None, description='"" clears the external blocker; null leaves it unchanged'
+    )
+    tags: list[str] | None = Field(
+        None,
+        description="replaces the whole tag set; [] removes every tag; null leaves it unchanged",
     )
 
 
@@ -357,6 +365,7 @@ def get_board(
                 "assignee": t.assignee,
                 "external_blocker": t.external_blocker,
                 "blockers": t.blockers,
+                "tags": t.tags,
                 "created_at": t.created_at,
                 "moved_at": t.moved_at,
                 "archived_at": t.archived_at,
@@ -374,6 +383,24 @@ def get_board(
         "project": proj.to_public(),
         "archived_count": archived_count,
     }
+
+
+@app.get("/api/tags")
+def list_tags(
+    project: str | None = Query(None, description="project slug"),
+    project_id: str | None = Query(None, description="alias of `project`"),
+    include_archived: bool = Query(True, description="count tags of archived cards too"),
+) -> dict[str, Any]:
+    """Tag vocabulary of a project with usage counts, most used first.
+
+    The vocabulary is derived from the cards themselves, so every tag returned
+    here can be attached to another card of the same project.
+    """
+    project = project or project_id or DEFAULT_PROJECT_ID
+    if _store.get_project(project) is None:
+        raise HTTPException(404, f"project {project} not found")
+    tags = _store.list_tags(project, include_archived=include_archived)
+    return {"project": project, "tags": tags, "total": len(tags)}
 
 
 # ---------------------------------------------------------------------------
@@ -769,6 +796,7 @@ def create_task(
             external_blocker=req.external_blocker,
             actor=_actor(x_kanban_actor, x_kanban_via),
             links=[ln.model_dump() for ln in req.links] or None,
+            tags=req.tags,
             project_id=req.project_id,
         )
     except ValueError as e:
@@ -792,6 +820,7 @@ def update_task(
             priority=req.priority,
             size=req.size,
             external_blocker=req.external_blocker,
+            tags=req.tags,
         )
     except KeyError:
         raise HTTPException(404, f"task {task_id} not found")

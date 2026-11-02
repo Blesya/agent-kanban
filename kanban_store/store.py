@@ -14,6 +14,7 @@ Public API:
     Store.add_comment(task_id, text, actor)
     Store.add_link(task_id, type, value)
     Store.set_blockers(task_id, blocker_ids)
+    Store.list_tags(project_id=None)  -> [{"name": ..., "count": ...}]
     Store.snapshot()  -> dict (for JSON snapshots)
 
 Every mutation that changes something writes one row to ``task_history``.
@@ -25,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import threading
 
@@ -157,6 +159,7 @@ class Task:
     project_id: str = DEFAULT_PROJECT_ID
     archived_at: str | None = None
     links: list[dict[str, str]] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
     history: list[TaskHistory] = field(default_factory=list)
     # Total number of history rows; ``history`` may hold only the newest ones.
     history_total: int = 0
@@ -239,6 +242,42 @@ def normalize_links(links: Iterable[Any] | None) -> list[tuple[str, str]]:
     return out
 
 
+# A tag is a short label: letters (any alphabet), digits, ``.``, ``_``, ``-``.
+# Normalised to lowercase, inner whitespace becomes ``-`` so "Bug Fix" and
+# "bug  fix" end up as one tag instead of two look-alikes.
+TAG_RE = re.compile(r"^[\w][\w.\-]*$")
+TAG_MAX_LEN = 32
+
+
+def normalize_tag(value: Any) -> str:
+    """Normalise one tag, raising ``ValueError`` for anything unusable."""
+    if not isinstance(value, str):
+        raise ValueError(f"tag must be a string, got {value!r}")
+    tag = re.sub(r"\s+", "-", value.strip().lower())
+    if not tag:
+        raise ValueError("tag must not be empty")
+    if len(tag) > TAG_MAX_LEN:
+        raise ValueError(f"tag {tag!r} is longer than {TAG_MAX_LEN} chars")
+    if not TAG_RE.match(tag):
+        raise ValueError(
+            f"invalid tag {value!r}: use letters, digits, '.', '_' or '-' (no spaces)"
+        )
+    return tag
+
+
+def normalize_tags(tags: Iterable[Any] | None) -> list[str]:
+    """Validate a tag list and return it normalised, de-duplicated, sorted."""
+    out: list[str] = []
+    for i, value in enumerate(tags or []):
+        try:
+            tag = normalize_tag(value)
+        except ValueError as e:
+            raise ValueError(f"tags[{i}]: {e}") from None
+        if tag not in out:
+            out.append(tag)
+    return sorted(out)
+
+
 class Store:
     """Thread-safe wrapper around SQLite. One instance per process."""
 
@@ -280,12 +319,19 @@ class Store:
             self._migrate_v3()
             self._migrate_v4()
             self._migrate_v5()
+            self._migrate_v6()
 
     def _schema_version(self) -> int:
         row = self._conn.execute(
             "SELECT value FROM meta WHERE key='schema_version'"
         ).fetchone()
         return int(row["value"]) if row else 1
+
+    def _migrate_v6(self) -> None:
+        """v5 → v6: task_tags table (created via schema.sql, this method only
+        bumps the version)."""
+        if self._schema_version() < 6:
+            self._conn.execute("UPDATE meta SET value='6' WHERE key='schema_version'")
 
     def _migrate_v5(self) -> None:
         """v4 → v5: tasks.archived_at (rule_firings comes from schema.sql)."""
@@ -376,16 +422,24 @@ class Store:
         assignee: str | None = None,
         project_id: str | None = None,
         *,
+        tag: str | None = None,
         include_archived: bool = False,
     ) -> list[Task]:
         """List of tasks with filters, sorted by (status, column_order).
 
         ``project_id=None`` means "all projects". The board UI always
         passes a concrete project_id. Archived tasks are skipped unless
-        ``include_archived=True``.
+        ``include_archived=True``. ``tag`` keeps only tasks carrying that
+        tag (normalised the same way as on write).
         """
         sql = "SELECT * FROM tasks WHERE 1=1"
         params: list[Any] = []
+        if tag is not None:
+            sql += (
+                " AND EXISTS (SELECT 1 FROM task_tags tt "
+                "WHERE tt.task_id = tasks.id AND tt.tag = ?)"
+            )
+            params.append(normalize_tag(tag))
         if status is not None:
             if isinstance(status, str):
                 statuses = [status]
@@ -484,6 +538,30 @@ class Store:
             result.setdefault(t.status, []).append(t)
         return result
 
+    def list_tags(
+        self, project_id: str | None = None, *, include_archived: bool = True
+    ) -> list[dict[str, Any]]:
+        """Tag vocabulary with usage counts, most used first.
+
+        ``project_id=None`` covers all projects. Archived tasks are counted
+        by default: a tag that only lives on archived cards is still a real
+        tag of the project and stays selectable.
+        """
+        sql = (
+            "SELECT tt.tag AS name, COUNT(*) AS count "
+            "FROM task_tags tt JOIN tasks t ON t.id = tt.task_id WHERE 1=1"
+        )
+        params: list[Any] = []
+        if project_id is not None:
+            sql += " AND t.project_id = ?"
+            params.append(project_id)
+        if not include_archived:
+            sql += " AND t.archived_at IS NULL"
+        sql += " GROUP BY tt.tag ORDER BY count DESC, tt.tag ASC"
+        with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
+        return [{"name": r["name"], "count": r["count"]} for r in rows]
+
     # ------------------------------------------------------------------
     # Writes
     # ------------------------------------------------------------------
@@ -501,6 +579,7 @@ class Store:
         external_blocker: str | None = None,
         actor: str = "user",
         links: list[dict[str, str]] | None = None,
+        tags: Iterable[str] | None = None,
         task_id: str | None = None,
         project_id: str = DEFAULT_PROJECT_ID,
     ) -> Task:
@@ -510,6 +589,7 @@ class Store:
         if not title or not title.strip():
             raise ValueError("title must not be empty")
         link_pairs = normalize_links(links)
+        tag_list = normalize_tags(tags)
         ts = _now()
         with self._lock:
             if self.get_project(project_id) is None:
@@ -552,6 +632,11 @@ class Store:
                     self._conn.execute(
                         "INSERT OR IGNORE INTO task_links (task_id, type, value) VALUES (?, ?, ?)",
                         (tid, type_, value),
+                    )
+                for tag in tag_list:
+                    self._conn.execute(
+                        "INSERT OR IGNORE INTO task_tags (task_id, tag) VALUES (?, ?)",
+                        (tid, tag),
                     )
                 self._insert_history(tid, ts, actor, "create", None, status, None)
                 self._conn.execute("COMMIT")
@@ -836,12 +921,14 @@ class Store:
         description: str | None = None,
         acceptance: str | None = None,
         external_blocker: str | None = None,
+        tags: Iterable[str] | None = None,
     ) -> Task:
         """Update the given fields (``None`` = leave alone).
 
         Only fields whose value actually changes are written, and the
         history row lists just those (``priority: normal → high; title``).
-        ``external_blocker=""`` clears the external blocker. A call that
+        ``external_blocker=""`` clears the external blocker. ``tags``
+        replaces the whole tag set; ``[]`` removes every tag. A call that
         changes nothing writes nothing.
         """
         requested = {
@@ -858,6 +945,7 @@ class Store:
             requested["priority"] = normalize_priority(requested["priority"])
         if requested["size"] is not None:
             requested["size"] = normalize_size(requested["size"])
+        tag_list = normalize_tags(tags) if tags is not None else None
         ts = _now()
         with self._lock:
             self._conn.execute("BEGIN IMMEDIATE")
@@ -883,11 +971,35 @@ class Store:
                         notes.append(f"{col}: {row[col]} → {val}")
                     else:
                         notes.append(col)
+                tags_changed = False
+                if tag_list is not None:
+                    current = [
+                        r["tag"]
+                        for r in self._conn.execute(
+                            "SELECT tag FROM task_tags WHERE task_id=? ORDER BY tag", (task_id,)
+                        ).fetchall()
+                    ]
+                    if sorted(current) != tag_list:
+                        tags_changed = True
+                        self._conn.execute(
+                            "DELETE FROM task_tags WHERE task_id=?", (task_id,)
+                        )
+                        for tag in tag_list:
+                            self._conn.execute(
+                                "INSERT OR IGNORE INTO task_tags (task_id, tag) VALUES (?, ?)",
+                                (task_id, tag),
+                            )
+                        notes.append(
+                            "tags: "
+                            f"{', '.join(current) or '(none)'} → "
+                            f"{', '.join(tag_list) or '(none)'}"
+                        )
                 if sets:
                     params.append(task_id)
                     self._conn.execute(
                         f"UPDATE tasks SET {', '.join(sets)} WHERE id = ?", params
                     )
+                if sets or tags_changed:
                     self._insert_history(
                         task_id, ts, actor, "update", None, None, "; ".join(notes)
                     )
@@ -1228,7 +1340,7 @@ class Store:
         projects = self.list_projects(include_archived=True)
         return {
             "exported_at": _now(),
-            "schema_version": 5,
+            "schema_version": 6,
             "projects": [p.to_public() for p in projects],
             "tasks": [t.to_public() for t in tasks],
         }
@@ -1273,7 +1385,7 @@ class Store:
         )
 
     def _attach_links_and_blockers(self, tasks: list[Task]) -> None:
-        """Load links and blockers for many tasks with two queries."""
+        """Load links, tags and blockers for many tasks with three queries."""
         if not tasks:
             return
         by_id = {t.id: t for t in tasks}
@@ -1287,6 +1399,11 @@ class Store:
                 chunk,
             ).fetchall():
                 by_id[r["task_id"]].links.append({"type": r["type"], "value": r["value"]})
+            for r in self._conn.execute(
+                f"SELECT task_id, tag FROM task_tags WHERE task_id IN ({ph}) ORDER BY tag",
+                chunk,
+            ).fetchall():
+                by_id[r["task_id"]].tags.append(r["tag"])
             for r in self._conn.execute(
                 f"SELECT task_id, blocker_id FROM task_blockers WHERE task_id IN ({ph}) "
                 "ORDER BY blocker_id",

@@ -41,8 +41,8 @@ Tools:
 * ``kanban_columns``   — column descriptions (so the agent gets oriented)
 * ``kanban_projects``  — projects with task counts
 * ``kanban_board``     — compact board overview of one project
-* ``kanban_list``      — list tasks (filter by status / assignee / project)
-* ``kanban_search``    — substring search in title/description
+* ``kanban_list``      — list tasks (filter by status / assignee / project / tag)
+* ``kanban_search``    — substring search in title/description/tags, or all tasks of one tag
 * ``kanban_my_active`` — the agent's tasks in analyst/in_progress/testing
 * ``kanban_get``       — full card with the newest history rows
 * ``kanban_history``   — older history, page by page
@@ -51,7 +51,8 @@ Tools:
 * ``kanban_assign``    — set or clear the assignee
 * ``kanban_comment``   — comment in history
 * ``kanban_create``    — new card
-* ``kanban_update``    — edit fields
+* ``kanban_update``    — edit fields (including replacing the tag set)
+* ``kanban_tags``      — the project's tag vocabulary with counts
 * ``kanban_link``      — add a link (memory / file / pr / url / plan)
 * ``kanban_blockers``  — replace internal blockers (dependencies)
 
@@ -153,6 +154,7 @@ def _short_task(t: Any) -> dict[str, Any]:
         "external_blocker": t.external_blocker,
         "moved_at": t.moved_at,
         "blockers": t.blockers,
+        "tags": t.tags,
         "project_id": t.project_id,
         "archived": bool(t.archived_at),
         "url": _url(t.id),
@@ -164,6 +166,7 @@ def kanban_list(
     status: str | None = None,
     assignee: str | None = None,
     project_id: str | None = None,
+    tag: str | None = None,
     include_archived: bool = False,
 ) -> dict[str, Any]:
     """List tasks with optional filters.
@@ -174,6 +177,7 @@ def kanban_list(
         assignee: claude / agent:<name> / user, or None for all.
         project_id: project slug (see kanban_projects); default = this agent's
                     project (KANBAN_PROJECT_ID), "*" = all projects.
+        tag: only tasks carrying this tag (e.g. "bug-fix"); None = any.
         include_archived: also list archived tasks (hidden from the board).
 
     Returns:
@@ -184,7 +188,7 @@ def kanban_list(
             status = normalize_status(status)
         tasks = _get_store().list_tasks(
             status=status, assignee=assignee, project_id=_scope(project_id),
-            include_archived=include_archived,
+            tag=tag, include_archived=include_archived,
         )
     except Exception as e:
         return _err(str(e))
@@ -253,26 +257,56 @@ def kanban_board(project_id: str | None = None, per_column: int = 5) -> dict[str
 
 
 @mcp.tool()
-def kanban_search(query: str, project_id: str | None = None) -> dict[str, Any]:
-    """Search tasks by substring in title/description (case-insensitive).
+def kanban_search(
+    query: str = "", project_id: str | None = None, tag: str | None = None
+) -> dict[str, Any]:
+    """Search tasks by substring in title/description/tags (case-insensitive).
 
     Args:
-        query: search term; rejected if shorter than 2 characters.
+        query: search term; shorter than 2 characters is rejected unless a
+               tag is given (then an empty query lists the tag's tasks).
         project_id: default = KANBAN_PROJECT_ID; "*" = all projects.
+        tag: only tasks carrying this tag, combined with the substring match.
     """
-    if not query or len(query.strip()) < 2:
-        return _err("query must be at least 2 characters")
-    q = query.strip().lower()
+    q = (query or "").strip().lower()
+    if not tag and len(q) < 2:
+        return _err("query must be at least 2 characters (or pass a tag)")
     try:
-        tasks = _get_store().list_tasks(project_id=_scope(project_id))
+        tasks = _get_store().list_tasks(project_id=_scope(project_id), tag=tag)
     except Exception as e:
         return _err(str(e))
-    hits = [t for t in tasks if q in t.title.lower() or q in (t.description or "").lower()]
+    if q:
+        hits = [
+            t for t in tasks
+            if q in t.title.lower()
+            or q in (t.description or "").lower()
+            or any(q in name for name in t.tags)
+        ]
+    else:
+        hits = tasks
     return _ok({
         "tasks": [_short_task(t) for t in hits],
         "count": len(hits),
         "query": query,
+        "tag": tag,
     })
+
+
+@mcp.tool()
+def kanban_tags(project_id: str | None = None) -> dict[str, Any]:
+    """Tag vocabulary of a project with usage counts, most used first.
+
+    Call it before tagging a card: use an existing tag instead of inventing
+    a near-duplicate ("bug-fix" vs "bugfix").
+
+    Args:
+        project_id: default = KANBAN_PROJECT_ID; "*" = all projects.
+    """
+    try:
+        tags = _get_store().list_tags(_scope(project_id))
+    except Exception as e:
+        return _err(str(e))
+    return _ok({"tags": tags, "count": len(tags)})
 
 
 @mcp.tool()
@@ -445,6 +479,7 @@ def kanban_create(
     priority: str = "normal",
     size: str = "M",
     external_blocker: str | None = None,
+    tags: list[str] | None = None,
     actor: str | None = None,
     project_id: str | None = None,
 ) -> dict[str, Any]:
@@ -457,6 +492,7 @@ def kanban_create(
         status: backlog (default) / approved / in_progress / ... (see kanban_columns).
         priority: critical / high / normal / low.
         size: S (<30 min) / M (<2 h) / L (>2 h) / XL.
+        tags: labels ("bug-fix", "ui"); see kanban_tags for the project's existing ones.
         project_id: project slug; None = default (KANBAN_PROJECT_ID env,
                     else KANBAN_DEFAULT_PROJECT_ID). An unknown slug is an error.
     """
@@ -478,6 +514,7 @@ def kanban_create(
             size=size,
             external_blocker=external_blocker,
             actor=_actor(actor),
+            tags=tags,
             project_id=pid,
         )
     except Exception as e:
@@ -529,11 +566,14 @@ def kanban_update(
     priority: str | None = None,
     size: str | None = None,
     external_blocker: str | None = None,
+    tags: list[str] | None = None,
     actor: str | None = None,
 ) -> dict[str, Any]:
     """Update card fields (status: kanban_move; assignee: kanban_assign).
 
     Only the fields you pass are changed; external_blocker="" clears it.
+    ``tags`` replaces the whole tag set — pass [] to clear it, or the full
+    list including the tags you want to keep.
     """
     try:
         t = _get_store().update_fields(
@@ -545,6 +585,7 @@ def kanban_update(
             priority=priority,
             size=size,
             external_blocker=external_blocker,
+            tags=tags,
         )
     except KeyError:
         return _err(f"task {task_id} not found")

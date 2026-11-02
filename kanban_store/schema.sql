@@ -1,6 +1,7 @@
 -- Kanban schema (SQLite)
 -- v2: added projects + tasks.project_id (migration in Store._migrate_v2).
 -- v5: tasks.archived_at + rule_firings + command_runs + command_jobs (Store._migrate_v5).
+-- v6: task_tags (many-to-many tag labels, Store._migrate_v6).
 
 CREATE TABLE IF NOT EXISTS projects (
     id          TEXT PRIMARY KEY,                    -- 'finops', 'kanban-dev', ...
@@ -60,6 +61,16 @@ CREATE TABLE IF NOT EXISTS task_blockers (
     PRIMARY KEY (task_id, blocker_id),
     CHECK (task_id != blocker_id)
 );
+
+-- Free-form labels on a card. The vocabulary is per project — derived from
+-- the tags actually used, so there is no separate tags table to keep in sync.
+CREATE TABLE IF NOT EXISTS task_tags (
+    task_id  TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    tag      TEXT NOT NULL,                          -- normalised: lowercase, no spaces
+    PRIMARY KEY (task_id, tag)
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_tags_tag ON task_tags(tag);
 
 CREATE TABLE IF NOT EXISTS project_sources (
     project_id    TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,

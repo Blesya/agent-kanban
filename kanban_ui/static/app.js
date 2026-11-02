@@ -53,6 +53,7 @@ const state = {
   expandedCols:  _loadJSON(LS.EXPANDED_COLS),
   isDragging: false,
   showArchived: false,             // include archived cards on the board
+  tags: [],                        // tag vocabulary of the current project
   automationPaused: false,
   modalTask: null,                 // task currently open in the modal
 };
@@ -208,6 +209,40 @@ function projectEl(p) {
 
 // ----------------------------------------------------------- Board render
 
+// Inline icons for the card (no emoji, no icon font, works offline).
+const CARD_ICONS = {
+  bug: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 2 1.88 1.88M14.12 3.88 16 2M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>',
+  arrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 15l7-7 7 7"/></svg>',
+  alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.3 3.9L2.4 17a2 2 0 001.7 3h15.8a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>',
+  link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.8 10.2a4 4 0 010 5.7l-2.8 2.8a4 4 0 01-5.7-5.7l1.6-1.6"/><path d="M10.2 13.8a4 4 0 010-5.7l2.8-2.8a4 4 0 015.7 5.7l-1.6 1.6"/></svg>',
+  clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+};
+
+// Tags that mean "defect" — the card then shows a bug icon.
+const BUG_TAGS = new Set(["bug", "bugs", "bugfix", "bug-fix", "defect", "regression"]);
+
+function cardIsBug(t) {
+  return (t.tags || []).some(tag => BUG_TAGS.has(tag) || tag.startsWith("bug"));
+}
+
+function actorInitials(who) {
+  const s = String(who || "")
+    .replace(/^agent:/, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+  if (!s) return "?";
+  const parts = s.split(/\s+/);
+  const raw = parts.length > 1 ? parts[0][0] + parts[1][0] : s.slice(0, 2);
+  return raw.toUpperCase();
+}
+
+function actorTone(who) {
+  const w = String(who || "");
+  if (w === "user") return "card__avatar--user";
+  if (w === "claude" || w.startsWith("agent:")) return "card__avatar--agent";
+  return "";
+}
+
 function render(board) {
   state.board = board;
   if (board.project) {
@@ -304,21 +339,54 @@ function cardEl(t) {
   div.dataset.taskId = t.id;
   const running = (t.running || []).length > 0;
   const age = AGE_COLUMNS.has(t.status) && t.moved_at ? ageLabel(t.moved_at) : "";
+  const tags = t.tags || [];
+  const blockers = (t.blockers || []).length;
+  const priorityChip =
+    t.priority === "critical"
+      ? `<span class="chip chip--prio chip--prio-critical">${CARD_ICONS.alert}CRIT</span>`
+      : t.priority === "high"
+        ? `<span class="chip chip--prio chip--prio-high">${CARD_ICONS.arrow}HIGH</span>`
+        : "";
+  const footCounters =
+    (blockers ? `<span class="card__counter" title="Waits for ${blockers} blocker(s)">${CARD_ICONS.link}${blockers}</span>` : "") +
+    (age ? `<span class="card__counter" title="In this column since ${escapeHTML(localTime(t.moved_at))}">${CARD_ICONS.clock}${age}</span>` : "");
+  const footAvatar = t.assignee
+    ? `<span class="card__avatar ${actorTone(t.assignee)}" title="Assigned to ${escapeHTML(t.assignee)}">${escapeHTML(actorInitials(t.assignee))}</span>`
+    : "";
+  const foot = footCounters || footAvatar
+    ? `<div class="card__divider"></div>
+       <div class="card__foot">
+         <div class="card__counters">${footCounters}</div>
+         <div class="card__right">${footAvatar}</div>
+       </div>`
+    : "";
   div.innerHTML = `
-    <div class="card__row">
-      <span class="card__id">${t.id}</span>
-      ${t.priority === "critical" ? `<span class="chip chip--prio-high">CRIT</span>` : ""}
-      ${t.priority === "high" ? `<span class="chip chip--prio-high">HIGH</span>` : ""}
-      <span class="chip chip--size-${escapeHTML(t.size)}">${escapeHTML(t.size)}</span>
-      ${t.assignee ? `<span class="chip chip--assignee">${escapeHTML(t.assignee)}</span>` : ""}
-      ${running ? `<span class="chip chip--running" title="Running now: ${escapeHTML(t.running.join(", "))}">▶ agent</span>` : ""}
-      ${age ? `<span class="chip chip--age" title="In this column since ${escapeHTML(localTime(t.moved_at))}">${age}</span>` : ""}
-      ${t.archived_at ? `<span class="chip chip--age" title="Archived ${escapeHTML(localTime(t.archived_at))}">archived</span>` : ""}
+    <div class="card__head">
+      ${cardIsBug(t) ? `<span class="card__type" title="Bug">${CARD_ICONS.bug}</span>` : ""}
+      <span class="card__id">${escapeHTML(t.id)}</span>
+      <span class="card__flags">
+        ${running ? `<span class="chip chip--running" title="Running now: ${escapeHTML((t.running || []).join(", "))}">▶ agent</span>` : ""}
+        ${t.archived_at ? `<span class="chip chip--age" title="Archived ${escapeHTML(localTime(t.archived_at))}">archived</span>` : ""}
+      </span>
     </div>
-    <div class="card__title">${escapeHTML(t.title)}</div>
+    <h3 class="card__title">${escapeHTML(t.title)}</h3>
+    <div class="card__chips">
+      ${priorityChip}
+      <span class="chip chip--size-${escapeHTML(t.size)}">${escapeHTML(t.size)}</span>
+      ${tags.map(tag =>
+        `<span class="chip chip--tag" data-tag="${escapeHTML(tag)}" title="Filter by #${escapeHTML(tag)}">#${escapeHTML(tag)}</span>`
+      ).join("")}
+    </div>
     ${t.external_blocker ? `<div class="card__meta"><span class="card__blocker" title="${escapeHTML(t.external_blocker)}">${escapeHTML(t.external_blocker)}</span></div>` : ""}
+    ${foot}
   `;
-  div.addEventListener("click", () => {
+  div.addEventListener("click", (e) => {
+    const tagEl = e.target.closest(".chip--tag");
+    if (tagEl) {
+      e.stopPropagation();
+      toggleFilter(`tag:${tagEl.dataset.tag}`);
+      return;
+    }
     if (state.isDragging) return;
     openTaskModal(t.id);
   });
@@ -331,7 +399,7 @@ function matchesFilters(t) {
   // search
   if (state.search) {
     const q = state.search.toLowerCase();
-    const hay = `${t.id} ${t.title}`.toLowerCase();
+    const hay = `${t.id} ${t.title} ${(t.tags || []).join(" ")}`.toLowerCase();
     if (!hay.includes(q)) return false;
   }
   // filter chips
@@ -339,6 +407,10 @@ function matchesFilters(t) {
     if (f === "prio:high" && t.priority !== "high") return false;
     if (f === "blocked" && !t.external_blocker) return false;
     if (f === "unassigned" && t.assignee) return false;
+    if (f.startsWith("tag:")) {
+      const want = f.slice("tag:".length);
+      if (!(t.tags || []).includes(want)) return false;
+    }
     if (f.startsWith("assignee:")) {
       const want = f.slice("assignee:".length);
       const have = t.assignee || "";
@@ -500,6 +572,7 @@ async function openTaskModal(taskId) {
   $("#m-description").value = t.description || "";
   $("#m-acceptance").value = t.acceptance || "";
   $("#m-blocker").value = t.external_blocker || "";
+  tagPickerEdit.set(t.tags || []);
   $("#btn-archive-task").textContent = t.archived_at ? "Unarchive" : "Archive";
   renderLinks(t.links);
   renderHistory(t.history, t.history_total);
@@ -598,6 +671,7 @@ async function saveModal() {
     size: $("#m-size").value,
     // "" clears the blocker (null would mean "leave unchanged")
     external_blocker: $("#m-blocker").value.trim(),
+    tags: tagPickerEdit.get(),
   };
   const assignee = $("#m-assignee").value.trim();
   try {
@@ -653,6 +727,7 @@ function openNewModal() {
   $("#n-priority").value = "normal";
   $("#n-size").value = "M";
   $("#n-status").value = "backlog";
+  tagPickerNew.set([]);
   $("#n-proj-chip").textContent = state.project ? state.project.name : state.projectId;
   $("#new-modal").hidden = false;
   $("#n-title").focus();
@@ -675,6 +750,7 @@ async function createTask() {
     priority: $("#n-priority").value,
     size: $("#n-size").value,
     status: $("#n-status").value,
+    tags: tagPickerNew.get(),
     project_id: state.projectId,
   };
   try {
@@ -1181,6 +1257,7 @@ async function loadBoard() {
       (state.showArchived ? "&include_archived=true" : "");
     const board = await api("GET", `/api/board?${qs}`);
     render(board);
+    loadTags();
   } catch (e) {
     if (String(e.message).includes("HTTP 404")) {
       // Project not found — fall back to the first available
@@ -1222,10 +1299,191 @@ function clearSearch() {
 function toggleFilter(filter) {
   if (state.filters.has(filter)) state.filters.delete(filter);
   else state.filters.add(filter);
-  $$(`#filters .filter-chip`).forEach(b => {
+  $$(`#filters .filter-chip, #tagbar .tag-chip`).forEach(b => {
     b.classList.toggle("is-on", state.filters.has(b.dataset.filter));
   });
   applyFilters();
+}
+
+// ----------------------------------------------------------- Tags
+//
+// Tags are derived from the cards of the current project (/api/tags), so the
+// picker only offers labels that already exist there — plus the one being
+// typed, which is created on save.
+
+function normalizeTagClient(raw) {
+  return String(raw || "").trim().toLowerCase().replace(/\s+/g, "-");
+}
+
+function createTagPicker({ valuesId, addId, menuId, searchId, listId }) {
+  const valuesEl = $(valuesId);
+  const addBtn = $(addId);
+  const menuEl = $(menuId);
+  const searchEl = $(searchId);
+  const listEl = $(listId);
+  const chosen = [];
+
+  function vocabulary() { return state.tags || []; }
+  function isOpen() { return !menuEl.hidden; }
+
+  function renderValues() {
+    if (!chosen.length) {
+      valuesEl.innerHTML = `<span class="tagpicker__hint">none</span>`;
+      return;
+    }
+    valuesEl.innerHTML = chosen.map(tag =>
+      `<span class="tagpill">#${escapeHTML(tag)}<button type="button" class="tagpill__x"` +
+      ` data-tag="${escapeHTML(tag)}" aria-label="Remove tag">×</button></span>`
+    ).join("");
+    valuesEl.querySelectorAll(".tagpill__x").forEach(b => {
+      b.addEventListener("click", () => { remove(b.dataset.tag); });
+    });
+  }
+
+  function renderList() {
+    const q = normalizeTagClient(searchEl.value);
+    const known = vocabulary();
+    const chosenSet = new Set(chosen);
+    const rows = known
+      .filter(it => !q || it.name.includes(q))
+      .map(it => {
+        const on = chosenSet.has(it.name);
+        return `<button type="button" class="tagopt${on ? " is-on" : ""}" data-tag="${escapeHTML(it.name)}">` +
+          `<span class="tagopt__check">${on ? "✓" : ""}</span>` +
+          `<span class="tagopt__name">#${escapeHTML(it.name)}</span>` +
+          `<span class="tagopt__count">${it.count}</span></button>`;
+      });
+    if (q && !known.some(it => it.name === q)) {
+      rows.unshift(`<button type="button" class="tagopt tagopt--new" data-new="${escapeHTML(q)}">` +
+        `<span class="tagopt__check">+</span>` +
+        `<span class="tagopt__name">create #${escapeHTML(q)}</span></button>`);
+    }
+    listEl.innerHTML = rows.join("") ||
+      `<div class="tagpicker__empty">no tags in this project yet — type to create one</div>`;
+    listEl.querySelectorAll(".tagopt").forEach(b => {
+      b.addEventListener("click", () => {
+        if (b.dataset.new !== undefined) add(b.dataset.new);
+        else toggle(b.dataset.tag);
+        searchEl.value = "";
+        searchEl.focus();
+        renderList();
+      });
+    });
+  }
+
+  function add(raw) {
+    const tag = normalizeTagClient(raw);
+    if (!tag || chosen.includes(tag)) return;
+    chosen.push(tag);
+    chosen.sort();
+    renderValues();
+  }
+
+  function remove(tag) {
+    const i = chosen.indexOf(tag);
+    if (i >= 0) chosen.splice(i, 1);
+    renderValues();
+  }
+
+  function toggle(tag) {
+    if (chosen.includes(tag)) remove(tag);
+    else add(tag);
+  }
+
+  function open() {
+    menuEl.hidden = false;
+    addBtn.classList.add("is-open");
+    searchEl.value = "";
+    renderList();
+    searchEl.focus();
+  }
+
+  function close() {
+    menuEl.hidden = true;
+    addBtn.classList.remove("is-open");
+  }
+
+  addBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (isOpen()) close();
+    else open();
+  });
+  searchEl.addEventListener("input", renderList);
+  searchEl.addEventListener("keydown", (e) => {
+    // Escape closes the panel, not the whole modal.
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      close();
+      addBtn.focus();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const q = normalizeTagClient(searchEl.value);
+      if (!q) return;
+      toggle(q);
+      searchEl.value = "";
+      renderList();
+    }
+  });
+  document.addEventListener("click", (e) => {
+    if (isOpen() && !menuEl.contains(e.target) && !addBtn.contains(e.target)) close();
+  });
+
+  renderValues();
+  return {
+    set(tags) {
+      chosen.length = 0;
+      (tags || []).forEach(add);
+      renderValues();
+      if (isOpen()) renderList();
+    },
+    get() { return [...chosen]; },
+    refresh() { if (isOpen()) renderList(); },
+  };
+}
+
+const tagPickerEdit = createTagPicker({
+  valuesId: "#m-tags", addId: "#m-tag-add", menuId: "#m-tag-menu",
+  searchId: "#m-tag-search", listId: "#m-tag-list",
+});
+const tagPickerNew = createTagPicker({
+  valuesId: "#n-tags", addId: "#n-tag-add", menuId: "#n-tag-menu",
+  searchId: "#n-tag-search", listId: "#n-tag-list",
+});
+
+async function loadTags() {
+  if (!state.projectId) return;
+  const wanted = state.projectId;
+  try {
+    const r = await api("GET", `/api/tags?project=${encodeURIComponent(wanted)}`);
+    if (state.projectId !== wanted) return;   // project switched meanwhile
+    state.tags = r.tags || [];
+  } catch {
+    state.tags = [];
+  }
+  renderTagbar();
+  tagPickerEdit.refresh();
+  tagPickerNew.refresh();
+}
+
+function renderTagbar() {
+  const el = $("#tagbar");
+  const tags = state.tags || [];
+  if (!tags.length) {
+    el.hidden = true;
+    el.innerHTML = "";
+    return;
+  }
+  el.hidden = false;
+  el.innerHTML = `<span class="tagbar__label">Tags</span>` + tags.map(t => {
+    const filter = `tag:${t.name}`;
+    const on = state.filters.has(filter) ? " is-on" : "";
+    return `<button class="filter-chip tag-chip${on}" data-filter="${escapeHTML(filter)}"` +
+      ` title="${t.count} card(s)">#${escapeHTML(t.name)}` +
+      `<span class="tag-chip__count">${t.count}</span></button>`;
+  }).join("");
+  el.querySelectorAll(".tag-chip").forEach(b => {
+    b.addEventListener("click", () => toggleFilter(b.dataset.filter));
+  });
 }
 
 // ----------------------------------------------------------- Middle-click pan

@@ -48,15 +48,15 @@ It writes (or merges into) `~/code/myproj/.mcp.json` and refreshes the "Kanban b
 `KANBAN_ACTOR` — author name written into `task_history` for every move/comment the agent makes (default `claude`), so the history distinguishes agent actions from human drag-drops.
 `KANBAN_MCP_HUMAN_ONLY` — statuses agents may not move or create cards into (default `done`; `uat,done,cancelled` for a stricter board, `""` to allow everything). The agent gets an error telling it to move the card to `testing` instead.
 
-Restart Claude Code (or run `claude mcp list` to confirm `✓ Connected`). 16 tools become available:
+Restart Claude Code (or run `claude mcp list` to confirm `✓ Connected`). 17 tools become available:
 
 | Tool | Purpose |
 |---|---|
 | `kanban_columns` | list of columns + ownership semantics |
 | `kanban_projects` | projects with task counts per column |
 | `kanban_board` | compact overview of one project (counts + first cards per column) |
-| `kanban_list` | tasks with optional status / assignee / project filters |
-| `kanban_search` | substring search in title/description |
+| `kanban_list` | tasks with optional status / assignee / project / tag filters |
+| `kanban_search` | substring search in title/description/tags; `tag=` alone lists everything with that tag |
 | `kanban_my_active` | this agent's cards in analyst / in_progress / testing |
 | `kanban_get` | card with links, blockers and the newest 30 history rows (`history_total` = all) |
 | `kanban_history` | older history, page by page |
@@ -65,7 +65,8 @@ Restart Claude Code (or run `claude mcp list` to confirm `✓ Connected`). 16 to
 | `kanban_assign` | set or clear the assignee (hand the card to another agent or lane) |
 | `kanban_comment` | append comment to history |
 | `kanban_create` | new card (unknown `project_id` is an error, not a silent default) |
-| `kanban_update` | edit title/priority/size/description/acceptance/external blocker (`""` clears it) |
+| `kanban_update` | edit title/priority/size/description/acceptance/external blocker (`""` clears it) and tags (`[]` clears them) |
+| `kanban_tags` | the project's tag vocabulary with usage counts |
 | `kanban_link` | attach memory/file/pr/url/plan link |
 | `kanban_blockers` | set/replace inter-task blockers (unknown ids and cycles are rejected) |
 
@@ -249,7 +250,8 @@ Key endpoints:
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/board?project=<id>` | board view (tasks grouped by column; each card carries `status`, `running`); `include_archived=true` |
+| GET | `/api/board?project=<id>` | board view (tasks grouped by column; each card carries `status`, `tags`, `running`); `include_archived=true` |
+| GET | `/api/tags?project=<id>` | tag vocabulary of the project with usage counts (`include_archived=false` to count live cards only) |
 | GET | `/api/projects` | list of projects |
 | POST | `/api/projects` | create project |
 | POST | `/api/projects/{id}/connect` | write `.mcp.json` + CLAUDE.md block into the project directory |

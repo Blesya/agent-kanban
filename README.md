@@ -29,12 +29,13 @@ Toggle theme with `t`, cycle profiles with `p`. Or pin a theme/profile via URL: 
 - Multiple projects in one DB, URL-routed (`/p/{slug}`), each with optional Claude Code-project directory binding.
 - Light/dark theme switcher (`t`), density toggle (`d`), collapsible columns, sidebar.
 - Search + filter chips, keyboard shortcuts (`/`, `n`, `r`, `\`, `Esc`).
+- **Tags**: free-form labels per card (`bug`, `gles`, `perf`); a tag bar under the topbar filters the board with one click, cards show their `#tags`, and the card editor has a searchable multi-select of the project's existing tags. `GET /api/tags` returns the vocabulary with counts.
 - Inbox watcher: drop a `.md` into `kanban_data/inbox/`, get a card in 5 sec. Point `KANBAN_INBOX_DIR` at any folder you like — even `~/.claude/projects/<proj>/memory/inbox/` for Claude session captures.
 - PLAN.md import (loose-mode parser, one-shot): any `## Section` → cards in backlog with section-name in description.
 - Automation rules (`kanban_data/rules.json`): `task_moved`, `task_idle`, `blockers_done`, `task_count_in_status` → move, comment, assign, set priority, archive, run a command. Polling rules act once per stay in a column; WIP limits, a pause switch. Hot-reloaded.
 - **Agent launcher** ([`examples/agent-launcher/`](examples/agent-launcher/)): card lands in Approved → headless Claude Code works it to Testing, with a timeout, one run per card, `max_concurrent` / `max_runs`, and the card blocked with a reason when a run goes wrong.
 - **Outbound webhooks** (`kanban_data/webhooks.json`): POST to Slack / Telegram / any HTTP endpoint on `task_created`/`task_moved`/`task_commented`/`task_updated`. 3 formats: `generic`, `slack`, `telegram`.
-- **MCP server** (`kanban_mcp/`) with 16 tools for Claude Code / Cline, strict arguments and compact answers; agents can't close cards themselves (configurable). `python -m kanban_mcp.connect <dir> --project <id>` writes the `.mcp.json` + `CLAUDE.md` block.
+- **MCP server** (`kanban_mcp/`) with 17 tools for Claude Code / Cline, strict arguments and compact answers; agents can't close cards themselves (configurable). `python -m kanban_mcp.connect <dir> --project <id>` writes the `.mcp.json` + `CLAUDE.md` block.
 - **One event stream**: every change — UI, REST, MCP agent, script, rule — lands in the task history, and rules and webhooks react to it the same way.
 - **REST API + auto-generated OpenAPI** for opencode / Open WebUI / any LLM with function calling. Scripts sign their changes with `X-Kanban-Actor`.
 - Archive instead of delete: archived cards leave the board but keep their status. Links to single cards: `/t/T-042`.
@@ -136,7 +137,7 @@ agent-kanban/
 ├── kanban_store/    SQLite store + schema (5 migrations) + maintenance CLI
 ├── kanban_ui/       FastAPI web UI + automation/{events,inbox,rules,webhooks,plan_md}
 │   └── static/      index.html · styles.css · app.js · vendor/Sortable
-├── kanban_mcp/      MCP server (16 tools) + connect helper
+├── kanban_mcp/      MCP server (17 tools) + connect helper
 ├── seed/            generic example tasks
 ├── examples/        llm-tool-calling demo scripts
 ├── docs/            INTEGRATION.md, openapi.yaml, screenshots

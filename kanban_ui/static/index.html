@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Cinzel:wght@500;600;700&family=Marcellus&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/styles.css?v=0.2.0" />
+  <link rel="stylesheet" href="/static/styles.css?v=0.2.3" />
   <script>
     // Apply saved theme and profile before body parses — no flash of wrong styles.
     // Also accept ?theme=light|dark and ?profile=standard|cyberpunk|horizon
@@ -90,6 +90,7 @@
         Automation is paused — rules don't act and no agents are launched.
         <button class="btn btn--ghost" id="btn-resume-automation">Resume</button>
       </div>
+      <div class="tagbar" id="tagbar" hidden></div>
       <main class="board" id="board">
         <!-- columns rendered by app.js -->
       </main>
@@ -133,6 +134,18 @@
           <div class="field">
             <label>Assignee</label>
             <input type="text" id="m-assignee" placeholder="— (e.g. claude, agent:reviewer)" />
+          </div>
+        </div>
+        <div class="field">
+          <label>Tags</label>
+          <div class="tagpicker">
+            <div class="tagpicker__values" id="m-tags"><span class="tagpicker__hint">none</span></div>
+            <button type="button" class="tagpicker__add" id="m-tag-add">+ tag</button>
+            <div class="tagpicker__menu" id="m-tag-menu" hidden>
+              <input type="text" id="m-tag-search" class="tagpicker__search"
+                     placeholder="Search tags…" autocomplete="off" />
+              <div class="tagpicker__list" id="m-tag-list"></div>
+            </div>
           </div>
         </div>
         <div class="field">
@@ -231,6 +244,18 @@
         <div class="field">
           <label>Acceptance criteria</label>
           <textarea id="n-acceptance" rows="3"></textarea>
+        </div>
+        <div class="field">
+          <label>Tags</label>
+          <div class="tagpicker">
+            <div class="tagpicker__values" id="n-tags"><span class="tagpicker__hint">none</span></div>
+            <button type="button" class="tagpicker__add" id="n-tag-add">+ tag</button>
+            <div class="tagpicker__menu" id="n-tag-menu" hidden>
+              <input type="text" id="n-tag-search" class="tagpicker__search"
+                     placeholder="Search tags…" autocomplete="off" />
+              <div class="tagpicker__list" id="n-tag-list"></div>
+            </div>
+          </div>
         </div>
       </div>
       <footer class="modal__foot">
@@ -351,6 +376,6 @@
   <div class="toast" id="toast" hidden></div>
 
   <script src="/static/vendor/Sortable.min.js"></script>
-  <script src="/static/app.js?v=0.2.0"></script>
+  <script src="/static/app.js?v=0.2.3"></script>
 </body>
 </html>

@@ -154,6 +154,61 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/tags:
+    get:
+      summary: List Tags
+      description: 'Tag vocabulary of a project with usage counts, most used first.
+
+
+        The vocabulary is derived from the cards themselves, so every tag returned
+
+        here can be attached to another card of the same project.'
+      operationId: list_tags_api_tags_get
+      parameters:
+      - name: project
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: project slug
+          title: Project
+        description: project slug
+      - name: project_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: alias of `project`
+          title: Project Id
+        description: alias of `project`
+      - name: include_archived
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: count tags of archived cards too
+          default: true
+          title: Include Archived
+        description: count tags of archived cards too
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response List Tags Api Tags Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/projects:
     get:
       summary: List Projects
@@ -1324,6 +1379,12 @@ components:
           - type: string
           - type: 'null'
           title: External Blocker
+        tags:
+          items:
+            type: string
+          type: array
+          title: Tags
+          description: labels; lowercased, spaces become '-' (e.g. 'Bug Fix' → 'bug-fix')
         links:
           items:
             $ref: '#/components/schemas/LinkIn'
@@ -1371,6 +1432,15 @@ components:
           - type: 'null'
           title: External Blocker
           description: '"" clears the external blocker; null leaves it unchanged'
+        tags:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Tags
+          description: replaces the whole tag set; [] removes every tag; null leaves
+            it unchanged
       additionalProperties: false
       type: object
       title: TaskUpdate
@@ -1400,4 +1470,3 @@ components:
       - msg
       - type
       title: ValidationError
-
