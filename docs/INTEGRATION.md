@@ -72,6 +72,8 @@ Restart Claude Code (or run `claude mcp list` to confirm `✓ Connected`). 17 to
 
 Mutating tools answer with a short card (`id`, `status`, `url`, …), not the whole history. Arguments are strict: `project=` instead of `project_id=` is an error that names the right parameter, not a silently dropped value. Status names are forgiving: `"In progress"`, `"Testing"` and `"в работе"` all work.
 
+> **Updated agent-kanban? Restart the MCP client.** The stdio server reports the tool list it loaded at process start; a client that keeps the old process keeps the old tools — a server started before the tags release has no `kanban_tags` and rejects `tags=`. `claude mcp list` reconnects it; opencode respawns the server with the app/session.
+
 Changes made over MCP reach automation rules and webhooks the same way UI drag-drops do: every change lands in `task_history`, and the web server's event feed dispatches it within about a second (the web server has to be running for that part).
 
 **Example prompt for the agent:**

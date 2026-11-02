@@ -190,6 +190,7 @@ Hot-reload by mtime — no server restart needed.
 | Agent: "'done' is reserved for a human" | by design — agents stop at `testing`; see `KANBAN_MCP_HUMAN_ONLY` |
 | `C` button in topbar is grey | not logged in — clicking it kicks off the OAuth flow in your browser |
 | Drag-drop works but webhooks are silent | check the syntax of `kanban_data/webhooks.json`; status: `/api/automation/status.webhooks` |
+| New MCP tools missing after an update (`kanban_tags`, `tags=` on create/update) | the client still runs the stdio server it started before the update — restart it: `claude mcp list` reconnects, opencode restarts the server with the app |
 | Board feels slow, DB is large | `python -m kanban_store.maintenance doctor` |
 
 All event logs and errors are exposed at `GET /api/automation/status` (JSON).
