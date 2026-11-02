@@ -54,6 +54,9 @@ const state = {
   isDragging: false,
   showArchived: false,             // include archived cards on the board
   tags: [],                        // tag vocabulary of the current project
+  projSearch: "",                  // sidebar project filter
+  projDragging: false,             // reorder in progress
+  projDragEndedAt: 0,              // swallow the click that follows a drag
   automationPaused: false,
   modalTask: null,                 // task currently open in the modal
 };
@@ -152,11 +155,44 @@ function ownerLabel(owner) {
 
 // ----------------------------------------------------------- Sidebar
 
+function projectMatchesSearch(p) {
+  const q = (state.projSearch || "").trim().toLowerCase();
+  if (!q) return true;
+  return `${p.name} ${p.id} ${p.path || ""}`.toLowerCase().includes(q);
+}
+
+function projIcon(p) {
+  return (p.icon || p.name[0] || "?").toUpperCase().slice(0, 2);
+}
+
 function renderSidebar() {
+  // A 10s poll must not replace the rows in the middle of a drag.
+  if (state.projDragging) return;
+  const openMenuFor = $("#proj-menu") && !$("#proj-menu").hidden ? projMenuProjectId : null;
   const list = $("#proj-list");
   list.innerHTML = "";
-  const active = state.projects.filter(p => !p.archived);
+  const active = state.projects.filter(p => !p.archived && projectMatchesSearch(p));
   for (const p of active) list.appendChild(projectEl(p));
+  // Keep an open actions menu attached to its row across the 10s re-render.
+  if (openMenuFor) {
+    const row = list.querySelector(`.proj[data-proj="${openMenuFor}"]`);
+    const btn = row && row.querySelector(".proj__menu");
+    if (btn) {
+      row.classList.add("is-menu-open");
+      positionProjMenu(btn);
+    } else {
+      closeProjMenu();
+    }
+  }
+
+  const empty = $("#proj-empty");
+  if (empty) {
+    const q = (state.projSearch || "").trim();
+    empty.textContent = q
+      ? `No projects match “${q}”`
+      : "No projects yet — press + to create one";
+    empty.hidden = active.length > 0;
+  }
 
   // archive section
   const archived = state.projects.filter(p => p.archived);
@@ -181,30 +217,226 @@ function renderSidebar() {
 function projectEl(p) {
   const a = document.createElement("a");
   a.className = "proj";
-  if (p.id === state.projectId) a.classList.add("proj--active");
+  if (p.id === state.projectId) {
+    a.classList.add("proj--active");
+    a.setAttribute("aria-current", "page");
+  }
   a.dataset.proj = p.id;
   a.href = `/p/${p.id}`;
-  a.title = p.path ? `${p.name} — ${p.path}` : p.name;
+  a.draggable = false;
+
+  const counts = p.task_counts || {};
+  const approved = counts.approved || 0;
+  const blocked = counts.blocked || 0;
+  const total = p.total_tasks || 0;
+  // The total is only worth a badge when nothing more actionable is shown —
+  // three badges in a 203px row squeeze the project name to four letters.
+  const showTotal = !approved && !blocked;
+  const tip = [`${total} active task${total === 1 ? "" : "s"}`];
+  if (approved) tip.push(`${approved} approved`);
+  if (blocked) tip.push(`${blocked} blocked`);
+  if (p.path) tip.push(p.path);
+  a.title = `${p.name} — ${tip.join(", ")}`;
+
   a.innerHTML = `
-    <span class="proj__mark" style="background:${escapeHTML(p.color)}">${escapeHTML((p.icon || p.name[0] || "?").toUpperCase().slice(0,2))}</span>
+    <span class="proj__grip" aria-hidden="true">⠿</span>
+    <span class="proj__mark" style="background:${escapeHTML(p.color)}">${escapeHTML(projIcon(p))}</span>
+    ${approved || blocked ? `<span class="proj__dot${approved ? "" : " proj__dot--blocked"}" aria-hidden="true">${approved || blocked}</span>` : ""}
     <span class="proj__name">${escapeHTML(p.name)}</span>
-    <span class="proj__count">${p.total_tasks || 0}</span>
-    <button class="proj__menu" title="Edit" aria-label="Edit">⋯</button>
+    <span class="proj__badges">
+      ${approved ? `<span class="badge badge--approved" title="${approved} approved — waiting for an agent">${approved}</span>` : ""}
+      ${blocked ? `<span class="badge badge--blocked" title="${blocked} blocked">${blocked}</span>` : ""}
+      ${showTotal ? `<span class="badge badge--total" title="${total} active task${total === 1 ? "" : "s"}">${total}</span>` : ""}
+    </span>
+    <button class="proj__menu" type="button" title="Project actions" aria-label="Project actions" aria-haspopup="menu">⋯</button>
   `;
+
   a.addEventListener("click", (e) => {
+    // A drag just ended — do not navigate/open the card on the same click.
+    if (Date.now() - (state.projDragEndedAt || 0) < 250) {
+      e.preventDefault();
+      return;
+    }
     if (e.target.closest(".proj__menu")) {
       e.preventDefault();
       e.stopPropagation();
-      openEditProj(p);
+      openProjMenu(p, e.target.closest(".proj__menu"));
       return;
     }
     e.preventDefault();
     if (p.id === state.projectId) return;
+    closeProjMenu();
     navigateTo(p.id);
     loadBoard();
     renderSidebar();
   });
   return a;
+}
+
+// --- project search -------------------------------------------------------
+
+function onProjSearchInput(e) {
+  state.projSearch = e.target.value;
+  $("#btn-proj-search-clear").hidden = !e.target.value;
+  renderSidebar();
+}
+
+function clearProjSearch() {
+  state.projSearch = "";
+  const input = $("#proj-search");
+  input.value = "";
+  $("#btn-proj-search-clear").hidden = true;
+  renderSidebar();
+  input.focus();
+}
+
+function moveProjFocus(delta) {
+  const rows = $$("#proj-list .proj");
+  if (!rows.length) return;
+  const cur = rows.indexOf(document.activeElement);
+  const next = cur < 0
+    ? (delta > 0 ? 0 : rows.length - 1)
+    : Math.min(rows.length - 1, Math.max(0, cur + delta));
+  rows[next].focus();
+}
+
+// --- project actions menu -------------------------------------------------
+
+const PROJ_MENU_ICONS = {
+  rename: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+  archive: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/></svg>',
+  restore: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>',
+  connect: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13.8 10.2a4 4 0 0 1 0 5.7l-2.8 2.8a4 4 0 0 1-5.7-5.7l1.6-1.6"/><path d="M10.2 13.8a4 4 0 0 1 0-5.7l2.8-2.8a4 4 0 0 1 5.7 5.7l-1.6 1.6"/></svg>',
+  path: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"/><path d="M9 3v18h10a1 1 0 0 0 1-1v-4H9"/></svg>',
+};
+
+let projMenuProjectId = null;
+
+function openProjMenu(p, btn) {
+  const menu = $("#proj-menu");
+  if (!menu) return;
+  projMenuProjectId = p.id;
+  const items = [
+    { act: "rename", label: "Rename…", icon: "rename" },
+    p.archived
+      ? { act: "archive", label: "Restore to sidebar", icon: "restore" }
+      : { act: "archive", label: "Archive project", icon: "archive", danger: true },
+    { act: "connect", label: "Connect Claude Code", icon: "connect" },
+    { act: "path", label: "Copy path", icon: "path", disabled: !p.path },
+  ];
+  menu.innerHTML = items.map(it => `<button class="pmi${it.danger ? " pmi--danger" : ""}" type="button"
+      role="menuitem" data-act="${it.act}"${it.disabled ? " disabled" : ""}>
+      ${PROJ_MENU_ICONS[it.icon] || ""}<span>${escapeHTML(it.label)}</span>
+    </button>`).join("");
+  menu.hidden = false;
+
+  const row = btn.closest(".proj");
+  if (row) row.classList.add("is-menu-open");
+  positionProjMenu(btn);
+}
+
+function positionProjMenu(btn) {
+  const menu = $("#proj-menu");
+  if (!menu || menu.hidden) return;
+  const r = btn.getBoundingClientRect();
+  const w = menu.offsetWidth || 204;
+  const h = menu.offsetHeight || 150;
+  const left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8));
+  const below = r.bottom + 4;
+  menu.style.left = `${left}px`;
+  menu.style.top = `${below + h > window.innerHeight - 8 ? Math.max(8, r.top - h - 4) : below}px`;
+}
+
+function closeProjMenu() {
+  const menu = $("#proj-menu");
+  projMenuProjectId = null;
+  if (!menu || menu.hidden) return;
+  menu.hidden = true;
+  $$(".proj.is-menu-open").forEach(el => el.classList.remove("is-menu-open"));
+}
+
+async function runProjMenuAction(act, p) {
+  if (act === "rename") {
+    openEditProj(p);
+    return;
+  }
+  if (act === "connect") {
+    if (!p.path) {
+      toast("Set the project directory first", "err");
+      return;
+    }
+    try {
+      await api("POST", `/api/projects/${encodeURIComponent(p.id)}/connect`, {});
+      toast(`MCP config written for ${p.name}`);
+    } catch (e) {
+      toast(`Error: ${e.message}`, "err");
+    }
+    return;
+  }
+  if (act === "path") {
+    try {
+      await navigator.clipboard.writeText(p.path || "");
+      toast("Path copied");
+    } catch {
+      toast(p.path || "");
+    }
+    return;
+  }
+  if (act === "archive") {
+    const toArchive = !p.archived;
+    if (toArchive && !confirm(`Archive project “${p.name}”? Its cards stay in the database.`)) return;
+    try {
+      await api("POST", `/api/projects/${encodeURIComponent(p.id)}/archive`, { archived: toArchive });
+      toast(toArchive ? `${p.name} archived` : `${p.name} restored`);
+      await loadProjects();
+      if (toArchive && state.projectId === p.id) {
+        const next = state.projects.find(x => !x.archived);
+        if (next) {
+          navigateTo(next.id);
+          await loadBoard();
+        }
+      }
+      renderSidebar();
+    } catch (e) {
+      toast(`Error: ${e.message}`, "err");
+    }
+  }
+}
+
+// --- sidebar drag-reorder -------------------------------------------------
+
+function initProjSortable() {
+  const list = $("#proj-list");
+  if (!list || typeof Sortable === "undefined") return;
+  Sortable.create(list, {
+    animation: 120,
+    draggable: ".proj",
+    ghostClass: "sortable-ghost",
+    onStart: () => {
+      state.projDragging = true;
+      closeProjMenu();
+    },
+    onEnd: async () => {
+      state.projDragging = false;
+      state.projDragEndedAt = Date.now();
+      const ids = $$("#proj-list .proj").map(el => el.dataset.proj);
+      await persistProjOrder(ids);
+    },
+  });
+}
+
+async function persistProjOrder(ids) {
+  for (let i = 0; i < ids.length; i++) {
+    const p = state.projects.find(x => x.id === ids[i]);
+    if (!p || p.sort_order === i) continue;
+    try {
+      await api("PATCH", `/api/projects/${encodeURIComponent(p.id)}`, { sort_order: i });
+    } catch (e) {
+      toast(`Reorder failed: ${e.message}`, "err");
+      break;
+    }
+  }
+  await loadProjects();
 }
 
 // ----------------------------------------------------------- Board render
@@ -1608,6 +1840,43 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#search").addEventListener("input", onSearchInput);
   $("#btn-search-clear").addEventListener("click", clearSearch);
 
+  // Sidebar: project search, keyboard navigation, actions menu
+  $("#proj-search").addEventListener("input", onProjSearchInput);
+  $("#btn-proj-search-clear").addEventListener("click", clearProjSearch);
+  $("#proj-search").addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      moveProjFocus(1);
+    } else if (e.key === "Escape") {
+      e.stopPropagation();
+      clearProjSearch();
+    }
+  });
+  $("#proj-list").addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      moveProjFocus(1);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      moveProjFocus(-1);
+    }
+  });
+  $("#proj-menu").addEventListener("click", (e) => {
+    const item = e.target.closest(".pmi");
+    if (!item || item.disabled) return;
+    const p = state.projects.find(x => x.id === projMenuProjectId);
+    closeProjMenu();
+    if (p) runProjMenuAction(item.dataset.act, p);
+  });
+  document.addEventListener("click", (e) => {
+    if ($("#proj-menu").hidden) return;
+    if (e.target.closest("#proj-menu") || e.target.closest(".proj__menu")) return;
+    closeProjMenu();
+  });
+  window.addEventListener("scroll", closeProjMenu, true);
+  $("#proj-list").addEventListener("scroll", closeProjMenu);
+  initProjSortable();
+
   // Filter chips
   $$("#filters .filter-chip").forEach(b => {
     b.addEventListener("click", () => toggleFilter(b.dataset.filter));
@@ -1619,6 +1888,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const tag = (e.target.tagName || "").toLowerCase();
     const inField = tag === "input" || tag === "textarea" || tag === "select";
     if (e.key === "Escape") {
+      closeProjMenu();
       closeModal();
       closeNewModal();
       closeNewProj();

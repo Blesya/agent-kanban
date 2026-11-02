@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Cinzel:wght@500;600;700&family=Marcellus&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/styles.css?v=0.2.3" />
+  <link rel="stylesheet" href="/static/styles.css?v=0.2.8" />
   <script>
     // Apply saved theme and profile before body parses — no flash of wrong styles.
     // Also accept ?theme=light|dark and ?profile=standard|cyberpunk|horizon
@@ -40,9 +40,25 @@
         <span class="sidebar__brand">Kanban</span>
         <button class="btn btn--icon sidebar__toggle" id="btn-sidebar" title="Collapse (\\)" aria-label="Collapse">‹</button>
       </div>
-      <nav class="proj-list" id="proj-list">
+
+      <div class="sb-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>
+        </svg>
+        <input type="text" id="proj-search" placeholder="Search projects…" autocomplete="off" aria-label="Search projects" />
+        <button class="sb-search__clear" id="btn-proj-search-clear" hidden aria-label="Clear search">×</button>
+      </div>
+
+      <div class="proj-section">
+        <span class="proj-section__title">Projects</span>
+        <button class="proj-section__add" id="btn-new-proj" title="New project" aria-label="New project">+</button>
+      </div>
+
+      <nav class="proj-list" id="proj-list" role="navigation" aria-label="Projects">
         <!-- projects rendered by app.js -->
       </nav>
+      <div class="proj-empty" id="proj-empty" hidden></div>
+
       <div class="proj-archive" id="proj-archive" hidden>
         <button class="proj-archive__head" id="btn-archive-toggle">
           <span class="proj-archive__chevron">▸</span>
@@ -51,7 +67,6 @@
         </button>
         <div class="proj-archive__list" id="proj-archive-list" hidden></div>
       </div>
-      <button class="proj-add" id="btn-new-proj">+ New project</button>
     </aside>
 
     <!-- ========== Workspace ========== -->
@@ -373,9 +388,11 @@
     </div>
   </div>
 
+  <div class="proj-menu-pop" id="proj-menu" role="menu" hidden></div>
+
   <div class="toast" id="toast" hidden></div>
 
   <script src="/static/vendor/Sortable.min.js"></script>
-  <script src="/static/app.js?v=0.2.3"></script>
+  <script src="/static/app.js?v=0.2.8"></script>
 </body>
 </html>
